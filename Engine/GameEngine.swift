@@ -15,7 +15,7 @@ final class MatchState {
 }
 
 // MARK: - Engine
-final class SimulationEngine {
+final class SimulationEngine: ObservableObject {
     private(set) var state = MatchState()
 
     private var timer: AnyCancellable?
