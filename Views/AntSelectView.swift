@@ -1,7 +1,7 @@
 import SwiftUI
 
 // ──────────────────────────────────────────────────────────────────────────
-// VIEW – species-select (static grid & fixed info card)
+// VIEW – species-select with per-player lock
 // ──────────────────────────────────────────────────────────────────────────
 struct AntSelectView: View {
     @EnvironmentObject private var appState: AppState
@@ -11,25 +11,26 @@ struct AntSelectView: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
 
-                // Opponent (rotated 180°)
+                // Opponent (top) – rotated so they see upright
                 SelectionHalf(isTopHalf: true,
-                              selection: $vm.p2Selection,
-                              confirm: vm.confirm)
+                              player: $vm.p2,
+                              lockAction: vm.lockTop)
                     .rotationEffect(.degrees(180))
                     .frame(height: geo.size.height / 2)
 
                 Divider().background(.gray.opacity(0.35))
 
-                // Local player
+                // Local player (bottom)
                 SelectionHalf(isTopHalf: false,
-                              selection: $vm.p1Selection,
-                              confirm: vm.confirm)
+                              player: $vm.p1,
+                              lockAction: vm.lockBottom)
                     .frame(height: geo.size.height / 2)
             }
             .background(Color(.systemGray5))
             .ignoresSafeArea()
-            .onChange(of: vm.ready) { ready in
-                if ready { appState.screen = .match(settings: vm.makeSettings()) }
+            // When both locked, advance to match
+            .onChange(of: vm.bothLocked) { locked in
+                if locked { appState.screen = .match(settings: vm.makeSettings()) }
             }
         }
     }
@@ -37,16 +38,25 @@ struct AntSelectView: View {
 
 // MARK: - View-model
 final class AntSelectViewModel: ObservableObject {
-    @Published var p1Selection: SpeciesMeta?
-    @Published var p2Selection: SpeciesMeta?
 
-    var ready: Bool { p1Selection != nil && p2Selection != nil }
-    func confirm() {}
+    /// Per-player state
+    struct SelectState {
+        var selected: SpeciesMeta? = nil
+        var locked   = false
+    }
+
+    @Published var p1 = SelectState()
+    @Published var p2 = SelectState()
+
+    var bothLocked: Bool { p1.locked && p2.locked }
+
+    func lockBottom() { p1.locked = true }
+    func lockTop()    { p2.locked = true }
 
     func makeSettings() -> MatchSettings {
         MatchSettings(speciesSelections: [
-            .init(playerId: 1, species: p1Selection!),
-            .init(playerId: 2, species: p2Selection!)
+            .init(playerId: 1, species: p1.selected!),
+            .init(playerId: 2, species: p2.selected!)
         ])
     }
 }
@@ -56,71 +66,83 @@ final class AntSelectViewModel: ObservableObject {
 // ──────────────────────────────────────────────────────────────────────────
 private struct SelectionHalf: View {
     let isTopHalf: Bool
-    @Binding var selection: SpeciesMeta?
-    var confirm: () -> Void
+    @Binding var player: AntSelectViewModel.SelectState
+    var lockAction: () -> Void
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     var body: some View {
-        HStack(spacing: 16) {
+        ZStack {                      // allows LOCKED overlay
+            HStack(spacing: 16) {
 
-            // ————— STATIC 3 × 2 GRID —————
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(0..<6) { idx in
-                    gridCell(at: idx)
+                // 3 × 2 grid
+                LazyVGrid(columns: cols, spacing: 12) {
+                    ForEach(0..<6) { idx in
+                        gridCell(at: idx)
+                    }
                 }
+                .padding(.leading, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider().background(.gray.opacity(0.35))
+
+                // Info + Confirm
+                InfoCard(species: player.selected,
+                         confirmed: player.locked,
+                         confirm: lockAction)
+                    .frame(width: 190, height: 240)
+                    .padding(.trailing, 16)
             }
-            .padding(.leading, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 24)
 
-            Divider().frame(maxHeight: .infinity)
-                .background(.gray.opacity(0.35))
-
-            // ————— INFO CARD —————
-            InfoCard(species: selection, confirm: confirm)
-                .frame(width: 190, height: 240)          // fixed size → no shifts
-                .padding(.trailing, 16)
+            // LOCKED overlay
+            if player.locked {
+                Color.black.opacity(0.5)
+                    .overlay(
+                        Text("LOCKED")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(.white)
+                    )
+            }
         }
-        .padding(.vertical, 24)
     }
 
-    // MARK: grid cell builder
+    // MARK: grid cells
     @ViewBuilder private func gridCell(at idx: Int) -> some View {
         let icons = ImageAssets.antSpeciesIcons
-        let hasSpecies = idx < GameConstants.species.count
-        let isPicked   = hasSpecies && selection?.id == GameConstants.species[idx].id
+        let exists   = idx < GameConstants.species.count
+        let selected = exists && player.selected?.id == GameConstants.species[idx].id
 
         Button {
-            if hasSpecies {
-                selection = GameConstants.species[idx]
-                confirm()
-            }
+            guard !player.locked, exists else { return }
+            player.selected = GameConstants.species[idx]
         } label: {
             RoundedRectangle(cornerRadius: 10)
-                .fill(isPicked ? Color.accentColor.opacity(0.25) : Color(.systemGray4))
+                .fill(selected ? Color.accentColor.opacity(0.25) : Color(.systemGray4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(isPicked ? Color.accentColor : Color(.systemGray3), lineWidth: 2)
+                        .stroke(selected ? Color.accentColor : Color(.systemGray3), lineWidth: 2)
                 )
                 .overlay(
                     Image(systemName: icons[idx])
                         .resizable()
                         .scaledToFit()
                         .padding(16)
-                        .foregroundStyle(.primary.opacity(hasSpecies ? 1 : 0.3))
+                        .foregroundStyle(.primary.opacity(exists ? 1 : 0.3))
                 )
                 .aspectRatio(1, contentMode: .fit)
-                .opacity(hasSpecies ? 1 : 0.5)
+                .opacity(player.locked ? 0.4 : 1)       // dim grid when locked
         }
-        .disabled(!hasSpecies)
+        .disabled(player.locked || !exists)
     }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// INFO CARD (fixed frames – nothing jumps)
+// Info card (fixed size, never shifts)
 // ──────────────────────────────────────────────────────────────────────────
 private struct InfoCard: View {
     let species: SpeciesMeta?
+    let confirmed: Bool
     var confirm: () -> Void
 
     var body: some View {
@@ -139,26 +161,25 @@ private struct InfoCard: View {
                         .scaledToFit()
                         .frame(width: 72, height: 72)
 
-                    Text(s.name)
-                        .font(.headline)
-
+                    Text(s.name).font(.headline)
                     Text(s.tagline)
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .foregroundColor(.secondary)
-                        .frame(height: 32)     // fixed → no shift
+                        .frame(height: 32)
 
                     VStack(spacing: 4) {
                         ForEach(s.buffs,   id: \.self) { Text("▲ \($0)").foregroundColor(.green) }
                         ForEach(s.debuffs, id: \.self) { Text("▼ \($0)").foregroundColor(.red)   }
                     }
                     .font(.caption)
-                    .frame(height: 40)       // fixed → no shift
+                    .frame(height: 40)
 
                     Spacer().frame(height: 2)
 
-                    Button("Confirm", action: confirm)
+                    Button(confirmed ? "Locked" : "Confirm", action: confirm)
                         .buttonStyle(.borderedProminent)
+                        .disabled(confirmed)
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 8)
