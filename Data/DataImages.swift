@@ -1,20 +1,29 @@
 // DataImages.swift
-// Single source of truth for all image / texture names.
-
-import Foundation
+// Centralized names for all image and icon assets.
 
 enum ImageAssets {
-    // 6 icons mapped 1-to-1 with the 6 grid spots in AntSelectView.
-    static let antSpeciesIcons: [String] = [
-        "flame.fill",        // Fire Ant
-        "leaf.fill",         // Leafcutter
-        "shield.lefthalf.fill", // Bulldog (placeholder)
-        "bolt.fill",         // Pharaoh (placeholder)
-        "ant.fill",          // Species #5 placeholder
-        "hare.fill"          // Species #6 placeholder
+    /// 6 icons for grid selection (small thumbnails).
+    /// Use SF Symbols as fallback placeholders.
+    static let antGridIcons: [String] = [
+        "flame.fill",           // Fire Ant placeholder icon
+        "leaf.fill",            // Leafcutter placeholder icon
+        "shield.lefthalf.fill", // SF Symbol fallback
+        "bolt.fill",            // SF Symbol fallback
+        "ant.fill",             // placeholder
+        "hare.fill"             // placeholder
     ]
 
-    /// Name of the background texture used in MatchView.
-    /// Provide an image called **“MapTexture”** in the asset catalog.
+    /// 6 portraits for info cards (larger visuals).
+    /// Same order as `GameConstants.species`
+    static let antPortraits: [String] = [
+        "FireAntImage",
+        "LeafCutterImage",
+        "BulldogImage",
+        "PharaohImage",
+        "ant.fill",         // placeholder
+        "hare.fill"         // placeholder
+    ]
+
+    /// Background image for MatchView arena.
     static let mapTexture = "MapTexture"
 }

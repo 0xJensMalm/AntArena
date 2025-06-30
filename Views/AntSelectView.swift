@@ -11,7 +11,7 @@ struct AntSelectView: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
 
-                // Opponent (top) – rotated so they see upright
+                // Opponent (top)
                 SelectionHalf(isTopHalf: true,
                               player: $vm.p2,
                               lockAction: vm.lockTop)
@@ -28,7 +28,6 @@ struct AntSelectView: View {
             }
             .background(Color(.systemGray5))
             .ignoresSafeArea()
-            // When both locked, advance to match
             .onChange(of: vm.bothLocked) { locked in
                 if locked { appState.screen = .match(settings: vm.makeSettings()) }
             }
@@ -38,18 +37,10 @@ struct AntSelectView: View {
 
 // MARK: - View-model
 final class AntSelectViewModel: ObservableObject {
-
-    /// Per-player state
-    struct SelectState {
-        var selected: SpeciesMeta? = nil
-        var locked   = false
-    }
-
+    struct SelectState { var selected: SpeciesMeta?; var locked = false }
     @Published var p1 = SelectState()
     @Published var p2 = SelectState()
-
     var bothLocked: Bool { p1.locked && p2.locked }
-
     func lockBottom() { p1.locked = true }
     func lockTop()    { p2.locked = true }
 
@@ -64,6 +55,8 @@ final class AntSelectViewModel: ObservableObject {
 // ──────────────────────────────────────────────────────────────────────────
 // PRIVATE SUBVIEWS
 // ──────────────────────────────────────────────────────────────────────────
+
+// One half of the split screen
 private struct SelectionHalf: View {
     let isTopHalf: Bool
     @Binding var player: AntSelectViewModel.SelectState
@@ -72,123 +65,156 @@ private struct SelectionHalf: View {
     private let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     var body: some View {
-        ZStack {                      // allows LOCKED overlay
+        ZStack {
             HStack(spacing: 16) {
 
-                // 3 × 2 grid
-                LazyVGrid(columns: cols, spacing: 12) {
-                    ForEach(0..<6) { idx in
-                        gridCell(at: idx)
+                // ── Left column: grid + confirm ────────────────────────
+                VStack(spacing: 12) {
+                    LazyVGrid(columns: cols, spacing: 12) {
+                        ForEach(0..<6) { idx in cell(at: idx) }
+                    }
+                    .padding(.leading, 16)
+
+                    // Confirm button centered under grid
+                    if player.selected != nil && !player.locked {
+                        Button("Confirm", action: lockAction)
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.leading, 16)   // aligns with grid inset
                     }
                 }
-                .padding(.leading, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Divider().background(.gray.opacity(0.35))
 
-                // Info + Confirm
-                InfoCard(species: player.selected,
-                         confirmed: player.locked,
-                         confirm: lockAction)
-                    .frame(width: 190, height: 240)
+                // ── Right column: info card ────────────────────────────
+                InfoCard(species: player.selected)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.trailing, 16)
             }
-            .padding(.vertical, 24)
+            .padding(.vertical, 16)
 
             // LOCKED overlay
             if player.locked {
                 Color.black.opacity(0.5)
-                    .overlay(
-                        Text("LOCKED")
-                            .font(.largeTitle.bold())
-                            .foregroundStyle(.white)
-                    )
+                    .overlay(Text("LOCKED")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(.white))
             }
         }
     }
 
-    // MARK: grid cells
-    @ViewBuilder private func gridCell(at idx: Int) -> some View {
-        let icons = ImageAssets.antSpeciesIcons
-        let exists   = idx < GameConstants.species.count
-        let selected = exists && player.selected?.id == GameConstants.species[idx].id
+    // MARK: Grid cell builder
+    @ViewBuilder
+    private func cell(at idx: Int) -> some View {
+        let iconName = ImageAssets.antGridIcons[idx]
+        let isActive = idx < 2                          // Fire & Leaf active
+        let isPicked = isActive && player.selected?.id == GameConstants.species[idx].id
 
         Button {
-            guard !player.locked, exists else { return }
+            guard isActive, !player.locked else { return }
             player.selected = GameConstants.species[idx]
         } label: {
             RoundedRectangle(cornerRadius: 10)
-                .fill(selected ? Color.accentColor.opacity(0.25) : Color(.systemGray4))
+                .fill(isPicked ? Color.accentColor.opacity(0.25)
+                               : Color(.systemGray4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(selected ? Color.accentColor : Color(.systemGray3), lineWidth: 2)
+                        .stroke(isPicked ? Color.accentColor
+                                         : Color(.systemGray3), lineWidth: 2)
                 )
                 .overlay(
-                    Image(systemName: icons[idx])
-                        .resizable()
-                        .scaledToFit()
+                    icon(named: iconName)
                         .padding(16)
-                        .foregroundStyle(.primary.opacity(exists ? 1 : 0.3))
+                        .opacity(isActive ? 1 : 0.3)
                 )
                 .aspectRatio(1, contentMode: .fit)
-                .opacity(player.locked ? 0.4 : 1)       // dim grid when locked
+                .opacity(player.locked ? 0.4 : 1)
         }
-        .disabled(player.locked || !exists)
+        .disabled(!isActive || player.locked)
+    }
+
+    private func icon(named name: String) -> some View {
+        if UIImage(named: name) != nil {
+            return Image(name).resizable().scaledToFit()
+        } else {
+            return Image(systemName: name).resizable().scaledToFit()
+        }
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Info card (fixed size, never shifts)
-// ──────────────────────────────────────────────────────────────────────────
+// Info card – portrait, description, slim stats bar
 private struct InfoCard: View {
     let species: SpeciesMeta?
-    let confirmed: Bool
-    var confirm: () -> Void
+
+    private var cardBG: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color(.systemGray6))
+            .shadow(radius: 1, y: 1)
+    }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemGray6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(.systemGray3), lineWidth: 1)
-                )
-
+        VStack(spacing: 12) {
             if let s = species {
-                VStack(spacing: 8) {
-                    Image(systemName: s.portraitName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 72, height: 72)
+                // 1) Portrait + name
+                miniCard {
+                    VStack(spacing: 6) {
+                        Text(s.name).font(.headline)
+                        portrait(for: s)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: .infinity)
+                    }
+                    .padding(8)
+                }
 
-                    Text(s.name).font(.headline)
+                // 2) Description
+                miniCard {
                     Text(s.tagline)
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .foregroundColor(.secondary)
-                        .frame(height: 32)
-
-                    VStack(spacing: 4) {
-                        ForEach(s.buffs,   id: \.self) { Text("▲ \($0)").foregroundColor(.green) }
-                        ForEach(s.debuffs, id: \.self) { Text("▼ \($0)").foregroundColor(.red)   }
-                    }
-                    .font(.caption)
-                    .frame(height: 40)
-
-                    Spacer().frame(height: 2)
-
-                    Button(confirmed ? "Locked" : "Confirm", action: confirm)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(confirmed)
+                        .padding(8)
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 8)
+
+                // 3) Slim stats bar
+                miniCard {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(s.buffs,   id: \.self) { Text("▲ \($0)").foregroundColor(.green) }
+                            ForEach(s.debuffs, id: \.self) { Text("▼ \($0)").foregroundColor(.red)   }
+                        }
+                        .font(.caption2)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                }
+                .frame(height: 32)
+
             } else {
-                Text("Select a species")
-                    .font(.subheadline)
-                    .italic()
-                    .foregroundColor(.secondary)
+                miniCard {
+                    Text("Select a species")
+                        .font(.subheadline)
+                        .italic()
+                        .foregroundColor(.secondary)
+                        .padding()
+                }
             }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: helpers
+    private func miniCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ZStack { cardBG; content() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func portrait(for s: SpeciesMeta) -> Image {
+        if UIImage(named: s.portraitName) != nil {
+            return Image(s.portraitName)
+        } else {
+            return Image(systemName: s.portraitName)
         }
     }
 }
