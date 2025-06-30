@@ -1,75 +1,75 @@
-// MatchView.swift
 import SwiftUI
 import Combine
 
+// ──────────────────────────────────────────────────────────────────────────
+// MATCH VIEW  – full-screen background, edge-anchored HUDs, mirrored panels
+// ──────────────────────────────────────────────────────────────────────────
 struct MatchView: View {
     let settings: MatchSettings
     @EnvironmentObject private var appState: AppState
 
-    // ONE shared engine
+    // shared engine
     @StateObject private var engine = SimulationEngine()
     @StateObject private var vm: MatchViewModel
 
-    // upgrade-sheet toggles
-    @State private var showUpgradeP1 = false
-    @State private var showUpgradeP2 = false
+    // panel flags
+    @State private var showTopPanel    = false   // Player-2
+    @State private var showBottomSheet = false   // Player-1
 
     init(settings: MatchSettings) {
         self.settings = settings
-        let sharedEngine = SimulationEngine()
-        _engine = StateObject(wrappedValue: sharedEngine)
-        _vm     = StateObject(wrappedValue: MatchViewModel(engine: sharedEngine))
+        let shared = SimulationEngine()
+        _engine = StateObject(wrappedValue: shared)
+        _vm     = StateObject(wrappedValue: MatchViewModel(engine: shared))
     }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                arenaBackground.ignoresSafeArea()
 
-                // Split arenas
+                // ── Split arenas ───────────────────────────────────────
                 VStack(spacing: 0) {
-
-                    // Opponent (top) – rotated so they see upright
-                    HalfArenaView(
-                        isTopHalf: true,
-                        colonyColor: .brown,
-                        showSheet: $showUpgradeP2)
+                    HalfArena(isTop: true,
+                              colonyColor: .brown,
+                              showPanel: $showTopPanel)
                         .rotationEffect(.degrees(180))
                         .frame(height: geo.size.height / 2)
 
                     Divider()
 
-                    // Local player (bottom)
-                    HalfArenaView(
-                        isTopHalf: false,
-                        colonyColor: .black,
-                        showSheet: $showUpgradeP1)
+                    HalfArena(isTop: false,
+                              colonyColor: .black,
+                              showPanel: $showBottomSheet)
                         .frame(height: geo.size.height / 2)
                 }
 
-                // Centred Exit
+                // Exit
                 Button("Exit") {
+                    // close any open panels first
+                    showTopPanel = false
+                    showBottomSheet = false
                     engine.stop()
                     appState.screen = .speciesSelect
                 }
                 .buttonStyle(.borderedProminent)
+
+                // Top slide-down panel
+                overlayTopPanel
             }
-            // half-height sheets
-            .sheet(isPresented: $showUpgradeP1) {
-                UpgradeSheet(title: "Player 1 Upgrades")
+            // Bottom player native sheet
+            .sheet(isPresented: $showBottomSheet) {
+                BottomSheet { showBottomSheet = false }
                     .presentationDetents([.fraction(0.5)])
             }
-            .sheet(isPresented: $showUpgradeP2) {
-                UpgradeSheet(title: "Player 2 Upgrades")
-                    .presentationDetents([.fraction(0.5)])
-            }
-            .onAppear { engine.start() }
-            .onDisappear { engine.stop() }
         }
+        .background(fullBackground)   // fills every pixel
+        .ignoresSafeArea()
+        .onAppear { engine.start() }
+        .onDisappear { engine.stop() }
     }
 
-    // MARK: background helper
-    private var arenaBackground: some View {
+    // MARK: Background
+    private var fullBackground: some View {
         Group {
             if UIImage(named: ImageAssets.mapTexture) != nil {
                 Image(ImageAssets.mapTexture)
@@ -80,27 +80,40 @@ struct MatchView: View {
             }
         }
     }
+
+    // MARK: Overlay builder
+    @ViewBuilder private var overlayTopPanel: some View {
+        GeometryReader { g in
+            if showTopPanel {
+                TopPanel(height: g.size.height * 0.5) {
+                    withAnimation { showTopPanel = false }
+                }
+                .transition(.move(edge: .top))
+                .zIndex(10)
+            }
+        }
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Half-arena (one player’s viewport)
+// HALF-ARENA  – colony block + HUD
 // ──────────────────────────────────────────────────────────────────────────
-private struct HalfArenaView: View {
-    let isTopHalf: Bool            // still needed only for rotation parent
+private struct HalfArena: View {
+    let isTop: Bool
     let colonyColor: Color
-    @Binding var showSheet: Bool
+    @Binding var showPanel: Bool
 
     var body: some View {
         ZStack {
-            // colony block in the middle
+            // colony
             Rectangle()
                 .fill(colonyColor)
                 .frame(width: 80, height: 80)
-                .onTapGesture { showSheet = true }
+                .onTapGesture { withAnimation { showPanel = true } }
 
-            // HUD glued to the player edge
-            VStack {
-                Spacer()            // push HUD to container bottom
+            // HUD anchored bottom pre-rotation
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
                 HUDStrip()
             }
             .padding(.horizontal, 8)
@@ -108,8 +121,9 @@ private struct HalfArenaView: View {
         }
     }
 }
+
 // ──────────────────────────────────────────────────────────────────────────
-// HUD  (placeholder numbers)
+// HUD Strip – rotates 180º to cancel parent rotation (upright text)
 // ──────────────────────────────────────────────────────────────────────────
 private struct HUDStrip: View {
     var body: some View {
@@ -122,42 +136,54 @@ private struct HUDStrip: View {
         .padding(.vertical, 4)
         .background(.thinMaterial)
         .clipShape(Capsule())
+        .rotationEffect(.degrees(180))
     }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Simple upgrade sheet placeholder
+// Bottom sheet (Player-1) – slides up
 // ──────────────────────────────────────────────────────────────────────────
-private struct UpgradeSheet: View {
-    let title: String
-    @Environment(\.dismiss) private var dismiss
-
+private struct BottomSheet: View {
+    var close: () -> Void
     var body: some View {
         VStack(spacing: 24) {
-            Text(title).font(.title2.bold())
+            Text("Player 1 Upgrades").font(.title2.bold())
             Text("Upgrade menu coming soon…")
-            Button("Close") { dismiss() }
+            Button("Close", action: close)
         }
         .padding()
     }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ViewModel (unchanged stub)
+// Top panel (Player-2) – slides down, stops at 50 % height
+// ──────────────────────────────────────────────────────────────────────────
+private struct TopPanel: View {
+    let height: CGFloat
+    var close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Player 2 Upgrades").font(.title2.bold())
+            Text("Upgrade menu coming soon…")
+            Button("Close", action: close)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)            // exactly half the screen
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(radius: 6)
+        .rotationEffect(.degrees(180))     // upright for opponent
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// VIEW MODEL stub
 // ──────────────────────────────────────────────────────────────────────────
 final class MatchViewModel: ObservableObject {
     @Published private(set) var snapshot = MatchSnapshot()
-
     private let engine: SimulationEngine
-    private var bag = Set<AnyCancellable>()
-
-    init(engine: SimulationEngine) {
-        self.engine = engine
-        engine.snapshotSubject
-            .receive(on: DispatchQueue.main)
-            .assign(to: &$snapshot)
-    }
-
+    init(engine: SimulationEngine) { self.engine = engine }
     func start() { engine.start() }
-    func stop()  { engine.stop()  }
+    func stop()  { engine.stop() }
 }
