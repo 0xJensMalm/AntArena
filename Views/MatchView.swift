@@ -154,18 +154,52 @@ struct MatchView: View {
 }
 
 // ─────────────────────────────────────────────────────────────
-// HALF-ARENA  (placeholder colony)
+// HALF-ARENA  (colony with image)
 // ─────────────────────────────────────────────────────────────
 private struct HalfArena: View {
     let isTop: Bool
     let colonyColor: Color
     @Binding var showPanel: Bool
-
+    
+    // MANUALLY ADJUST COLONY POSITIONS HERE:
+    // Top colony (player 2) vertical position - lower numbers move it higher (closer to top edge)
+    private let topColonyPosition: CGFloat = 0.80
+    
+    // Bottom colony (player 1) vertical position - higher numbers move it lower (closer to bottom edge)
+    private let bottomColonyPosition: CGFloat = 0.80
+    
     var body: some View {
-        Rectangle()
-            .fill(colonyColor)
-            .frame(width: 50, height: 50)
-            .onTapGesture { withAnimation { showPanel = true } }
+        GeometryReader { geo in
+            ZStack(alignment: .center) {
+                // Position colonies within their half arenas with mirrored effect
+                colonyImage
+                    .frame(width: 70, height: 70)
+                    .shadow(radius: 3)
+                    .onTapGesture { withAnimation { showPanel = true } }
+                    // COLONY POSITION IS SET HERE:
+                    .position(
+                        x: geo.size.width / 2, // center horizontally
+                        y: isTop ? geo.size.height * topColonyPosition : geo.size.height * bottomColonyPosition
+                    )
+            }
+        }
+    }
+    
+    // Use the same colony image for both players
+    private var colonyImage: some View {
+        let imageName = "ColonyImage" // Using the same image for both colonies
+        
+        return Group {
+            if UIImage(named: imageName) != nil {
+                Image(imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                // Fallback if image not found
+                Circle()
+                    .fill(colonyColor)
+            }
+        }
     }
 }
 

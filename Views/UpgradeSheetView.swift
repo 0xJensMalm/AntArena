@@ -23,6 +23,7 @@ struct UpgradeSheetView: View {
                 // DASHBOARD ------------------------------------------------
                 Text("Colony Dashboard").font(.headline)
                 dashboard
+                    .id(refreshID) // Force refresh when upgrades are purchased
 
                 // PASSIVES -------------------------------------------------
                 Text("Passive Upgrades").font(.headline)
@@ -54,10 +55,34 @@ struct UpgradeSheetView: View {
 
     // MARK: local views -----------------------------------------------------
     private var dashboard: some View {
-        VStack(spacing: 6) {
-            dashRow(label: "Spawn",   value: "... s")
-            dashRow(label: "Gather",  value: "... s")
-            dashRow(label: "Mortality", value: "20 %")
+        // Get species of current player
+        let speciesID = upgrades.lvl(.hatchery) > 0 ? "LEAF" : "FIRE" // Default to FIRE if can't determine
+        
+        // Get base rates from balance table
+        let balance = BalanceTable.workers.first { $0.speciesID == speciesID } ?? 
+                     BalanceTable.workers.first! // Fallback to first entry if not found
+                     
+        // Calculate effective rates based on upgrades
+        let infirmaryLevel = upgrades.lvl(.infirmary)
+        let pheromoneLevel = upgrades.lvl(.pheromone)
+        
+        // Calculate effective spawn rate (lower is better)
+        let effectiveSpawnRate = balance.spawnRate * pow(0.9, Double(infirmaryLevel))
+        // Convert to per minute
+        let spawnPerMinute = 60.0 / effectiveSpawnRate
+        
+        // Calculate effective gather rate (lower is better)
+        let effectiveGatherRate = balance.gatherRate * pow(0.9, Double(pheromoneLevel))
+        // Convert to per minute
+        let gatherPerMinute = 60.0 / effectiveGatherRate
+        
+        // Death rate stays constant (for now)
+        let mortalityPercent = balance.deathRate * 100
+        
+        return VStack(spacing: 6) {
+            dashRow(label: "Spawn", value: String(format: "%.1f/min", spawnPerMinute))
+            dashRow(label: "Gather", value: String(format: "%.1f/min", gatherPerMinute))
+            dashRow(label: "Mortality", value: String(format: "%.0f%%", mortalityPercent))
         }
     }
     private func dashRow(label: String, value: String) -> some View {
@@ -70,6 +95,8 @@ struct UpgradeSheetView: View {
     }
 
     // MARK: buying ----------------------------------------------------------
+    @State private var refreshID = UUID() // For forcing view refresh
+    
     private func buy(_ meta: UpgradeMeta) {
         let current = upgrades.lvl(meta.id)
         guard current < meta.maxLevel else { return }
@@ -78,6 +105,9 @@ struct UpgradeSheetView: View {
 
         food -= price
         upgrades.inc(meta.id)
+        
+        // Force dashboard to refresh with new values
+        refreshID = UUID()
     }
 }
 
