@@ -23,6 +23,12 @@ enum ImageAssets {
         "ant.fill",         // placeholder
         "hare.fill"         // placeholder
     ]
+    
+    static let colonySprite: [String : String] = [
+           "FIRE" : "FireColony",   // provide FireColony.png in Assets
+           "LEAF" : "LeafColony"    // provide LeafColony.png in Assets
+           // add more as you introduce species
+       ]
 
     /// Background image for MatchView arena.
     static let mapTexture = "MapTexture"
